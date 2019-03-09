@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { CORS } from './app.config';
 import { AppModule } from './app.module';
+import { TransformInterceptor } from './interceptor/transform.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,6 +14,7 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type'],
     optionsSuccessStatus: 204
   });
+  app.useGlobalInterceptors(new TransformInterceptor());
   await app.listen(3333);
 }
 bootstrap();

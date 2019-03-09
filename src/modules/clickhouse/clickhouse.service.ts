@@ -1,6 +1,6 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, MethodNotAllowedException } from '@nestjs/common';
 import axios from 'axios';
-import { GetSqlQuery, InsertSqlQuery, PostSqlQuery } from './clickhouse.dto';
+import { CreatSqlQuery, GetSqlQuery, InsertSqlQuery, PostSqlQuery } from './clickhouse.dto';
 
 @Injectable()
 export class ClickhouseService {
@@ -9,31 +9,59 @@ export class ClickhouseService {
   public async getQuery (query: GetSqlQuery) {
     let response;
     try {
+      const sql = query.sql + (String(query.format) !== 'undefined' ? ` format ${query.format}` : ` format JSON`);
       response = await axios.get(`${this.ckUrl}`, {
-        params: query
+        params: {
+          query: sql,
+          database: query.database
+        }
       });
     } catch (err) {
       throw new InternalServerErrorException(err.response.data);
     }
-    return {
-      result: response.data
-    };
+    return response.data;
   }
 
   public async postQuery (body: PostSqlQuery) {
     let response;
     try {
       if (body.database) {
-        response = await axios.post(`${this.ckUrl}?database=${body.database}&query=`, body.query);
+        response = await axios.post(`${this.ckUrl}?database=${body.database}&query=`, body.sql);
       } else {
-        response = await axios.post(`${this.ckUrl}?query=`, body.query);
+        response = await axios.post(`${this.ckUrl}?query=`, body.sql);
       }
     } catch (err) {
       throw new InternalServerErrorException(err.response.data);
     }
-    return {
-      result: response.data
-    };
+    return response.data;
+  }
+
+  public async create (creatSqlQueryDto: CreatSqlQuery) {
+    const { table, database } = creatSqlQueryDto;
+    let databaseExist: boolean;
+    if (database) {
+      databaseExist = await this.checkDatabaseExsit(database);
+      if (!databaseExist) {
+        await this.postQuery({
+          sql: `create database ${database}`
+        });
+      }
+      if (table) {
+        await this.postQuery({
+          sql: table,
+          database
+        });
+      }
+    } else {
+      if (table) {
+        await this.postQuery({
+          sql: table
+        });
+      } else {
+        throw new MethodNotAllowedException('table或database至少有一个且为字符串');
+      }
+    }
+    return '创建成功';
   }
 
   public async insert (body: InsertSqlQuery) {
@@ -49,9 +77,19 @@ export class ClickhouseService {
         sql
       });
     }
-    return {
-      result: response.data
-    };
+    return response.data;
+  }
+
+  private async checkDatabaseExsit (database: string): Promise<boolean> {
+    if (!database) {
+      return false;
+    }
+    const databases = await this.getQuery({
+      sql: 'show databases'
+    });
+    return databases.data.some(({ name }) => {
+      return name === database;
+    });
   }
 
   private generateInserSql (table: string, body: InsertSqlQuery): string {
